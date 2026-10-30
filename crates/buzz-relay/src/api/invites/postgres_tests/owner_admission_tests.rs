@@ -243,14 +243,16 @@ mod postgres_tests {
 
     /// A claim that records the agent's owner makes its ordinary rows show
     /// `bot`, so the rosters of channels it is already in must be republished,
-    /// as on first AUTH. No membership change happens in those channels.
+    /// as on first AUTH. No membership change happens in those channels. The
+    /// claim also replaces this relay's cached "not owner" answers, which
+    /// observer frames trust.
     ///
-    /// Mutation: remove the republish from `owner_recorded_by_claim`, or call
-    /// that helper from only one claim format → that format's rosters keep
-    /// `member` → RED.
+    /// Mutation: remove the republish or the cache update from
+    /// `owner_recorded_by_claim`, or call that helper from only one claim
+    /// format → that format keeps `member` or a cached `false` → RED.
     #[tokio::test]
     #[ignore = "requires Postgres"]
-    async fn owner_recorded_by_v1_and_v2_claims_republishes_the_agents_rosters() {
+    async fn owner_recorded_by_v1_and_v2_claims_updates_owner_caches_and_republishes_rosters() {
         use buzz_core::channel::{ChannelType, ChannelVisibility, MemberRole};
 
         let (state, host, community, issuer) = fixture().await;
@@ -301,6 +303,16 @@ mod postgres_tests {
                 channels.push(channel);
             }
 
+            // An owner check before the claim cached "not owner".
+            let owner_key = (
+                community,
+                agent_bytes.to_vec(),
+                owner.public_key().to_bytes().to_vec(),
+            );
+            let author_key = (community, agent_bytes.to_vec());
+            state.observer_owner_cache.insert(owner_key.clone(), false);
+            state.author_type_cache.insert(author_key.clone(), false);
+
             let tag = buzz_sdk::nip_oa::compute_auth_tag(&owner, &agent.public_key(), "").unwrap();
             let response = post_with_owner_tag(
                 state.clone(),
@@ -321,6 +333,8 @@ mod postgres_tests {
                 )
                 .await
                 .unwrap());
+            assert_eq!(state.observer_owner_cache.get(&owner_key), Some(true));
+            assert_eq!(state.author_type_cache.get(&author_key), Some(true));
 
             let agent_hex = agent.public_key().to_hex();
             let deadline = std::time::Instant::now() + Duration::from_secs(10);

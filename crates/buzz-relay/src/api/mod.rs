@@ -589,12 +589,32 @@ pub mod relay_members {
             None => write_agent_owner(state, tenant, agent, owner).await,
         };
         if link == OwnerLink::Linked {
-            state
-                .author_type_cache
-                .insert((tenant.community(), agent.to_bytes().to_vec()), true);
-            state.observer_owner_cache.insert(owner_key, true);
+            remember_agent_owner(state, tenant, agent, owner);
         }
         link
+    }
+
+    /// Record a stored agent→owner link in this relay's owner caches. Owner
+    /// checks cache a miss as `false`, so every path that records an owner
+    /// calls this; otherwise those checks keep saying "not owner" until the
+    /// entry expires.
+    pub fn remember_agent_owner(
+        state: &AppState,
+        tenant: &TenantContext,
+        agent: &nostr::PublicKey,
+        owner: &nostr::PublicKey,
+    ) {
+        state
+            .author_type_cache
+            .insert((tenant.community(), agent.to_bytes().to_vec()), true);
+        state.observer_owner_cache.insert(
+            (
+                tenant.community(),
+                agent.to_bytes().to_vec(),
+                owner.to_bytes().to_vec(),
+            ),
+            true,
+        );
     }
 
     /// Record `owner` for an agent that had none when read. The write is
